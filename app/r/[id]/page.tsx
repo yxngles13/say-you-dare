@@ -1,12 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { skipDare } from "@/app/actions";
 import { AutoRefresh } from "@/components/AutoRefresh";
+import { DareTray } from "@/components/DareTray";
+import { Framed } from "@/components/Framed";
 import { HostLoginForm, JoinRoomForm } from "@/components/forms";
 import { Leaderboard } from "@/components/Leaderboard";
-import { ProofUpload } from "@/components/ProofUpload";
+import { WitnessPrompt } from "@/components/WitnessPrompt";
 import { getContext } from "@/lib/auth";
 import { ensureDare, getLeaderboard } from "@/lib/game";
+import { db } from "@/lib/supabase";
+import type { Submission } from "@/lib/types";
+import styles from "./game.module.css";
 
 export default async function RoomPage({ params }: PageProps<"/r/[id]">) {
   const { id } = await params;
@@ -16,80 +20,88 @@ export default async function RoomPage({ params }: PageProps<"/r/[id]">) {
   // Not joined yet: this is where the QR code / invite link lands.
   if (!player) {
     return (
-      <div className="stack">
-        <div>
-          <h1>{room.name}</h1>
-          <span className="badge">PIN {room.code ?? "expired"}</span>
-        </div>
-        <section className="card stack">
-          <h2>Join the party</h2>
+      <>
+        <Framed>
+          <p className="eyebrow">
+            {room.name} · PIN {room.code ?? "expired"}
+          </p>
+          <h1>Welcome</h1>
+          <p className="eyebrow">you have been invited</p>
           <JoinRoomForm roomId={room.id} />
-        </section>
-        <details className="card">
-          <summary>I&apos;m the host</summary>
-          <HostLoginForm roomId={room.id} />
-        </details>
-      </div>
+        </Framed>
+        <div className="beneath">
+          <details className="card">
+            <summary>I&apos;m the host</summary>
+            <HostLoginForm roomId={room.id} />
+          </details>
+        </div>
+      </>
     );
   }
 
-  const [dare, leaderboard] = await Promise.all([
+  const [dare, leaderboard, { data: pendingRows, error: pendingError }] = await Promise.all([
     room.status === "active" ? ensureDare(player) : Promise.resolve(null),
     getLeaderboard(room.id),
+    db().from("submissions").select("*").eq("room_id", room.id).eq("status", "pending").order("created_at"),
   ]);
+  if (pendingError) throw pendingError;
   const me = leaderboard.find((row) => row.id === player.id);
+  const names = new Map(leaderboard.map((row) => [row.id, row.name]));
+  const pending = (pendingRows ?? []) as Submission[];
+
+  // Claims naming me as witness, oldest first; and my own claims still awaiting a witness.
+  const toJudge = pending.find((sub) => sub.witness_id === player.id);
+  const awaiting = pending.filter((sub) => sub.player_id === player.id);
+  const awaitingNames = [...new Set(awaiting.map((sub) => names.get(sub.witness_id ?? "") ?? "the host"))];
+
+  const winner = leaderboard[0];
 
   return (
-    <div className="stack">
-      <AutoRefresh />
-      <div className="spread">
-        <div>
-          <h1 style={{ marginBottom: 4 }}>{room.name}</h1>
-          <span className="badge">PIN {room.code ?? "expired"}</span>
-        </div>
-        {player.is_host && <Link href={`/r/${room.id}/host`}>Host panel</Link>}
-      </div>
+    <div className={styles.game}>
+        <AutoRefresh />
+        {player.is_host && (
+          <Link className={styles.hostLink} href={`/r/${room.id}/host`}>
+            Host panel
+          </Link>
+        )}
+        <header className={styles.header}>
+          <h1>Hi {player.name}!</h1>
+          <p className={styles.meta}>
+            {room.name} · PIN {room.code ?? "expired"} · {me?.points ?? 0} pts · rank {me?.rank ?? "-"}
+          </p>
+        </header>
 
-      <p className="muted">
-        Playing as <strong>{player.name}</strong> · {me?.points ?? 0} pts · {me?.completed ?? 0} done · rank{" "}
-        {me?.rank ?? "-"}
-      </p>
+        <DareTray
+          roomId={room.id}
+          playerId={player.id}
+          status={room.status}
+          dare={dare && { id: dare.id, text: dare.text, points: dare.points }}
+          others={leaderboard.filter((row) => row.id !== player.id).map((row) => ({ id: row.id, name: row.name }))}
+          ending={winner ? `${winner.name} wins with ${winner.points} points.` : undefined}
+        />
 
-      {room.status === "lobby" && (
-        <div className="dare">
-          <h2>Waiting for the host to start…</h2>
-          <p className="muted">Your secret dare will appear here.</p>
-        </div>
-      )}
+        {awaiting.length > 0 && (
+          <p className={styles.awaiting}>
+            awaiting {awaitingNames.join(" & ")}&apos;s word on {awaiting.length} {awaiting.length === 1 ? "dare" : "dares"}
+          </p>
+        )}
 
-      {room.status === "active" && (
-        <div className="dare stack">
-          <small className="muted">YOUR SECRET DARE · {dare?.points ?? 0} PTS</small>
-          {dare ? (
-            <>
-              <h2 style={{ margin: 0 }}>{dare.text}</h2>
-              <ProofUpload key={dare.id} roomId={room.id} dareId={dare.id} />
-              <form action={skipDare.bind(null, room.id)}>
-                <button className="secondary small">Skip this dare</button>
-              </form>
-            </>
-          ) : (
-            <h2 style={{ margin: 0 }}>You&apos;ve done every dare! Wait for the host to add more.</h2>
-          )}
-        </div>
-      )}
+        {toJudge && (
+          <WitnessPrompt
+            roomId={room.id}
+            claim={{
+              id: toJudge.id,
+              claimer: names.get(toJudge.player_id) ?? "Someone",
+              dareText: toJudge.dare_text,
+              points: toJudge.points,
+            }}
+          />
+        )}
 
-      {room.status === "ended" && (
-        <div className="dare">
-          <h2>Game over!</h2>
-          <p className="muted">{leaderboard[0] ? `${leaderboard[0].name} wins with ${leaderboard[0].points} pts.` : ""}</p>
-        </div>
-      )}
-
-      <section className="card">
-        <h2>Leaderboard</h2>
-        <Leaderboard rows={leaderboard} meId={player.id} />
-      </section>
+        <section className={styles.board}>
+          <h2>Leaderboard</h2>
+          <Leaderboard rows={leaderboard} meId={player.id} />
+        </section>
     </div>
   );
 }

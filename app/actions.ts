@@ -164,6 +164,78 @@ export async function submitProof(roomId: string, form: FormData): Promise<FormS
   return undefined;
 }
 
+/** Claim the current dare as done, naming another player who saw it. Points wait for their word. */
+export async function claimDare(roomId: string, dareId: string, witnessId: string): Promise<FormState> {
+  const { room, player } = await requirePlayer(roomId);
+  if (room.status !== "active") return { error: "The game isn't running right now." };
+  if (witnessId === player.id) return { error: "Pick someone else as your witness." };
+
+  const { data: witness, error: witnessError } = await db()
+    .from("players")
+    .select("id")
+    .eq("id", witnessId)
+    .eq("room_id", room.id)
+    .maybeSingle();
+  if (witnessError) throw witnessError;
+  if (!witness) return { error: "That witness has left the party. Pick someone else." };
+
+  // Claim the dare first, so a double-tap can't score the same dare twice.
+  const { data: claimed, error: claimError } = await db()
+    .from("players")
+    .update({ current_dare_id: null })
+    .eq("id", player.id)
+    .eq("current_dare_id", dareId)
+    .select("id");
+  if (claimError) throw claimError;
+  if (!claimed?.length) return { error: "That dare is no longer yours. Refresh to see your current one." };
+
+  const { data: dare, error: dareError } = await db().from("dares").select("*").eq("id", dareId).maybeSingle();
+  if (dareError) throw dareError;
+  if (!dare) {
+    await assignNewDare({ ...player, current_dare_id: null });
+    refresh(room.id);
+    return { error: "The host removed that dare. You've been given a new one." };
+  }
+
+  const { error: insertError } = await db().from("submissions").insert({
+    room_id: room.id,
+    player_id: player.id,
+    dare_id: dare.id,
+    dare_text: (dare as Dare).text,
+    points: (dare as Dare).points,
+    witness_id: witnessId,
+    status: "pending",
+  });
+  if (insertError) throw insertError;
+
+  await assignNewDare({ ...player, current_dare_id: dareId });
+  refresh(room.id);
+  return undefined;
+}
+
+/** The named witness confirms a claim (points land) or calls it out (no points). */
+export async function judgeClaim(roomId: string, submissionId: string, saw: boolean) {
+  const { room, player } = await requirePlayer(roomId);
+
+  const { data: sub, error } = await db()
+    .from("submissions")
+    .update({ status: saw ? "approved" : "rejected" })
+    .eq("id", submissionId)
+    .eq("room_id", room.id)
+    .eq("witness_id", player.id)
+    .eq("status", "pending")
+    .select("player_id")
+    .maybeSingle();
+  if (error) throw error;
+
+  // A claimer with nothing left to do may have a dare again now that one was called out.
+  if (sub && !saw) {
+    const { data: owner } = await db().from("players").select("*").eq("id", sub.player_id).maybeSingle();
+    if (owner && !(owner as Player).current_dare_id && room.status === "active") await assignNewDare(owner as Player);
+  }
+  refresh(room.id);
+}
+
 export async function skipDare(roomId: string) {
   const { room, player } = await requirePlayer(roomId);
   if (room.status !== "active") return;
@@ -276,7 +348,8 @@ export async function removePlayer(roomId: string, playerId: string) {
   const { data: photos } = await db().from("submissions").select("photo_path").eq("player_id", playerId);
   const { error } = await db().from("players").delete().eq("id", playerId).eq("room_id", room.id);
   if (error) throw error;
-  if (photos?.length) await db().storage.from(PROOF_BUCKET).remove(photos.map((p) => p.photo_path));
+  const paths = (photos ?? []).flatMap((p) => (p.photo_path ? [p.photo_path] : []));
+  if (paths.length) await db().storage.from(PROOF_BUCKET).remove(paths);
   refresh(room.id);
 }
 

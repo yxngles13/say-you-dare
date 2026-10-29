@@ -26,6 +26,8 @@ export type Player = {
   created_at: string;
 };
 
+export type SubmissionStatus = "pending" | "approved" | "rejected";
+
 export type Submission = {
   id: string;
   room_id: string;
@@ -33,8 +35,9 @@ export type Submission = {
   dare_id: string | null;
   dare_text: string;
   points: number;
-  photo_path: string;
-  status: "approved" | "rejected";
+  photo_path: string | null;
+  witness_id: string | null;
+  status: SubmissionStatus;
   created_at: string;
 };
 

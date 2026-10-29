@@ -1,24 +1,20 @@
-import { CreateRoomForm, JoinRoomForm, HostLoginForm } from "@/components/forms";
+import Link from "next/link";
+import { Framed } from "@/components/Framed";
 
 export default function Home() {
   return (
-    <div className="stack">
-      <div>
-        <h1>Say You Dare</h1>
-        <p className="muted">A party game built around secret dares.</p>
+    <>
+      <Framed>
+        <p className="eyebrow">a party game of secret dares</p>
+        <h1 className="title">Say<br />you<br />Dare</h1>
+        <div className="row" style={{ justifyContent: "center" }}>
+          <Link className="button" href="/host">Host</Link>
+          <Link className="button secondary" href="/join">Join</Link>
+        </div>
+      </Framed>
+      <div className="beneath">
+        <Link className="eyebrow" href="/host?login=1">Already hosting? Log back in</Link>
       </div>
-      <section className="card stack">
-        <h2>Join a party</h2>
-        <JoinRoomForm />
-      </section>
-      <section className="card stack">
-        <h2>Host a party</h2>
-        <CreateRoomForm />
-      </section>
-      <details className="card">
-        <summary>Already hosting? Log back in with your host login code</summary>
-        <HostLoginForm />
-      </details>
-    </div>
+    </>
   );
 }

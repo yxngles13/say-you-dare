@@ -1,14 +1,16 @@
 "use client";
 
+import { Framed } from "@/components/Framed";
+
 export default function ErrorPage({ error, reset }: { error: Error; reset: () => void }) {
   return (
-    <div className="stack">
-      <h1>Something went wrong</h1>
+    <Framed>
+      <h1>Something Went Wrong</h1>
       <p className="error">{error.message}</p>
-      <div className="row">
+      <div className="row" style={{ justifyContent: "center" }}>
         <button onClick={reset}>Try again</button>
-        <a href="/">Back to start</a>
+        <a className="button secondary" href="/">Start</a>
       </div>
-    </div>
+    </Framed>
   );
 }

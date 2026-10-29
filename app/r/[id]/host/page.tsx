@@ -8,7 +8,13 @@ import { getLeaderboard } from "@/lib/game";
 import { PACKS } from "@/lib/packs";
 import { absoluteUrl, qrSvg } from "@/lib/qr";
 import { db, PROOF_BUCKET } from "@/lib/supabase";
-import type { Dare, Submission } from "@/lib/types";
+import type { Dare, Submission, SubmissionStatus } from "@/lib/types";
+
+const STATUS_LABEL: Record<SubmissionStatus, string> = {
+  pending: "awaiting witness",
+  approved: "confirmed",
+  rejected: "called out",
+};
 
 export default async function HostPage({ params }: PageProps<"/r/[id]/host">) {
   const { id } = await params;
@@ -25,8 +31,9 @@ export default async function HostPage({ params }: PageProps<"/r/[id]/host">) {
   const submissions = (subs ?? []) as Submission[];
 
   // Photos are private; the host gets 1-hour signed links.
-  const { data: signed } = submissions.length
-    ? await db().storage.from(PROOF_BUCKET).createSignedUrls(submissions.map((s) => s.photo_path), 3600)
+  const photoPaths = submissions.flatMap((s) => (s.photo_path ? [s.photo_path] : []));
+  const { data: signed } = photoPaths.length
+    ? await db().storage.from(PROOF_BUCKET).createSignedUrls(photoPaths, 3600)
     : { data: [] };
   const photoUrl = new Map((signed ?? []).flatMap((s) => (s.path && s.signedUrl ? [[s.path, s.signedUrl]] : [])));
   const names = new Map(leaderboard.map((p) => [p.id, p.name]));
@@ -144,25 +151,40 @@ export default async function HostPage({ params }: PageProps<"/r/[id]/host">) {
       </section>
 
       <section className="card stack">
-        <h2>Proofs</h2>
-        {!submissions.length && <p className="muted">No proofs submitted yet.</p>}
-        {submissions.map((sub) => (
-          <div key={sub.id} className={`stack ${sub.status === "rejected" ? "rejected" : ""}`}>
-            <div className="spread">
-              <span>
-                <strong>{names.get(sub.player_id) ?? "Removed player"}</strong> · {sub.dare_text} · {sub.points} pt
-              </span>
-              <form
-                action={setSubmissionStatus.bind(null, room.id, sub.id, sub.status === "approved" ? "rejected" : "approved")}
-              >
-                <button className="secondary small">{sub.status === "approved" ? "Reject" : "Restore"}</button>
-              </form>
+        <h2>Claims</h2>
+        <p className="muted">Players claim a dare and name a witness, who confirms or calls it out. You can overrule either way.</p>
+        {!submissions.length && <p className="muted">No dares claimed yet.</p>}
+        {submissions.map((sub) => {
+          const decide = (status: "approved" | "rejected") => setSubmissionStatus.bind(null, room.id, sub.id, status);
+          const photo = sub.photo_path ? photoUrl.get(sub.photo_path) : undefined;
+          return (
+            <div key={sub.id} className={`stack ${sub.status === "rejected" ? "rejected" : ""}`}>
+              <div className="spread">
+                <span>
+                  <strong>{names.get(sub.player_id) ?? "Removed player"}</strong> · {sub.dare_text} · {sub.points} pt
+                  <br />
+                  <span className="muted">
+                    {sub.witness_id ? `Witness: ${names.get(sub.witness_id) ?? "removed player"} · ` : ""}
+                    {STATUS_LABEL[sub.status]}
+                  </span>
+                </span>
+                <div className="row">
+                  {sub.status !== "approved" && (
+                    <form action={decide("approved")}>
+                      <button className="secondary small">{sub.status === "pending" ? "Confirm" : "Restore"}</button>
+                    </form>
+                  )}
+                  {sub.status !== "rejected" && (
+                    <form action={decide("rejected")}>
+                      <button className="secondary small">Reject</button>
+                    </form>
+                  )}
+                </div>
+              </div>
+              {photo && <img src={photo} alt={`Proof from ${names.get(sub.player_id)}`} className="proof" />}
             </div>
-            {photoUrl.get(sub.photo_path) && (
-              <img src={photoUrl.get(sub.photo_path)} alt={`Proof from ${names.get(sub.player_id)}`} className="proof" />
-            )}
-          </div>
-        ))}
+          );
+        })}
       </section>
     </div>
   );

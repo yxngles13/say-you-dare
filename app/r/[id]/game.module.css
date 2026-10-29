@@ -1,0 +1,14 @@
+/* Game screen layout. The backdrop and fonts come from the root layout. */
+
+.game { position: relative; display: grid; gap: 16px; overflow-x: clip; }
+
+.header { text-align: center; display: grid; gap: 6px; padding-top: 24px; }
+.header h1 { margin: 0; font: 400 clamp(36px, 11vw, 48px)/1.05 var(--font-blackletter), serif; }
+.meta { margin: 0; color: #8a7f76; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; }
+.hostLink { position: absolute; top: 0; right: 0; color: #c9a5a5; font-size: 12px; letter-spacing: 0.1em; }
+
+.board { margin-top: 12px; padding-top: 16px; border-top: 1px solid #2b2424; }
+.board h2 { margin: 0 0 8px; text-align: center; font: 400 28px var(--font-blackletter), serif; }
+.board :global(.list li) { border-bottom-color: #2b2424; }
+
+.awaiting { margin: 0; text-align: center; color: #8a7f76; font-size: 12px; letter-spacing: 0.15em; text-transform: uppercase; }

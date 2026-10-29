@@ -1,11 +1,14 @@
 import Link from "next/link";
+import { Framed } from "@/components/Framed";
 
 export default function NotFound() {
   return (
-    <div className="stack">
-      <h1>Room not found</h1>
-      <p className="muted">Check the room code and try again.</p>
-      <Link href="/">Back to start</Link>
-    </div>
+    <Framed>
+      <h1>Lost?</h1>
+      <p className="eyebrow">this room has vanished, or never was. check the PIN and try again.</p>
+      <div>
+        <Link className="button" href="/">Back to start</Link>
+      </div>
+    </Framed>
   );
 }

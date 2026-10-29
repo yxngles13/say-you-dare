@@ -10,7 +10,8 @@ import type { Dare, LeaderboardRow, Player } from "./types";
 export async function assignNewDare(player: Player): Promise<Dare | null> {
   const [{ data: dares, error: daresError }, { data: done, error: doneError }] = await Promise.all([
     db().from("dares").select("*").eq("room_id", player.room_id),
-    db().from("submissions").select("dare_id").eq("player_id", player.id).eq("status", "approved"),
+    // Pending claims count as done too, so a claimed dare isn't drawn again while awaiting its witness.
+    db().from("submissions").select("dare_id").eq("player_id", player.id).in("status", ["approved", "pending"]),
   ]);
   if (daresError) throw daresError;
   if (doneError) throw doneError;
