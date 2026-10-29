@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { deleteDare, removePlayer, setRoomStatus, setSubmissionStatus } from "@/app/actions";
+import { clearDares, deleteDare, removePlayer, setRoomStatus, setSubmissionStatus } from "@/app/actions";
 import { CopyLink } from "@/components/CopyLink";
-import { AddDareForm } from "@/components/forms";
+import { AddDareForm, AddPackButton, ImportDaresForm } from "@/components/forms";
 import { getContext } from "@/lib/auth";
 import { getLeaderboard } from "@/lib/game";
+import { PACKS } from "@/lib/packs";
 import { absoluteUrl, qrSvg } from "@/lib/qr";
 import { db, PROOF_BUCKET } from "@/lib/supabase";
 import type { Dare, Submission } from "@/lib/types";
@@ -96,6 +97,32 @@ export default async function HostPage({ params }: PageProps<"/r/[id]/host">) {
           ))}
         </ul>
         <AddDareForm roomId={room.id} />
+      </section>
+
+      <section className="card stack">
+        <h2>Dare packs</h2>
+        {PACKS.map((pack) => (
+          <AddPackButton key={pack.id} roomId={room.id} packId={pack.id} name={pack.name} count={pack.dares.length} />
+        ))}
+        <ImportDaresForm roomId={room.id} />
+        <div className="row">
+          {dareList.length > 0 && (
+            <a href={`/r/${room.id}/dares`} download>
+              Download these dares (.txt)
+            </a>
+          )}
+          {dareList.length > 0 && room.status !== "active" && (
+            <details>
+              <summary>Delete all dares…</summary>
+              <form action={clearDares.bind(null, room.id)} style={{ marginTop: 8 }}>
+                <button className="danger small">Yes, delete all {dareList.length}</button>
+              </form>
+            </details>
+          )}
+        </div>
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+          Download your dares to save them as your own pack, then import the file at your next party.
+        </p>
       </section>
 
       <section className="card stack">

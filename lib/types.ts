@@ -47,4 +47,4 @@ export type LeaderboardRow = {
   rank: number;
 };
 
-export type FormState = { error?: string } | undefined;
+export type FormState = { error?: string; message?: string } | undefined;

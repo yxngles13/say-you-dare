@@ -16,6 +16,7 @@ import {
 } from "@/lib/auth";
 import { assignNewDare } from "@/lib/game";
 import { randomRoomName } from "@/lib/names";
+import { MAX_DARE_LENGTH, MAX_DARES_PER_ROOM, PACKS, parseDareText, type PackDare } from "@/lib/packs";
 import { db, PROOF_BUCKET } from "@/lib/supabase";
 import type { Dare, FormState, Player, Room, RoomStatus } from "@/lib/types";
 
@@ -191,13 +192,73 @@ export async function addDare(roomId: string, _: FormState, form: FormData): Pro
   const { room } = await requireHost(roomId);
   const text = field(form, "text");
   const points = Number(field(form, "points") || 1);
-  if (!text || text.length > 200) return { error: "A dare must be 1–200 characters." };
+  if (!text || text.length > MAX_DARE_LENGTH) return { error: `A dare must be 1–${MAX_DARE_LENGTH} characters.` };
   if (!Number.isInteger(points) || points < 1 || points > 5) return { error: "Points must be 1–5." };
 
-  const { error } = await db().from("dares").insert({ room_id: room.id, text, points });
-  if (error) throw error;
+  const result = await insertDares(room.id, [{ text, points }]);
+  if (result.duplicates) return { error: "That dare is already in the room." };
+  if (result.overCap) return { error: `Rooms hold up to ${MAX_DARES_PER_ROOM} dares.` };
   refresh(room.id);
   return undefined;
+}
+
+/** Insert dares into a room, skipping ones it already has (same text, any case) and respecting the room cap. */
+async function insertDares(roomId: string, dares: PackDare[]): Promise<{ added: number; duplicates: number; overCap: number }> {
+  const { data: existing, error } = await db().from("dares").select("text").eq("room_id", roomId);
+  if (error) throw error;
+  const seen = new Set((existing ?? []).map((d) => d.text.toLowerCase()));
+  const fresh = dares.filter((d) => {
+    const key = d.text.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const space = Math.max(0, MAX_DARES_PER_ROOM - (existing?.length ?? 0));
+  const toInsert = fresh.slice(0, space);
+  if (toInsert.length) {
+    const { error: insertError } = await db()
+      .from("dares")
+      .insert(toInsert.map((d) => ({ room_id: roomId, text: d.text, points: d.points })));
+    if (insertError) throw insertError;
+  }
+  return { added: toInsert.length, duplicates: dares.length - fresh.length, overCap: fresh.length - toInsert.length };
+}
+
+function describeInsert(result: { added: number; duplicates: number; overCap: number }, skipped = 0): string {
+  const parts = [`Added ${result.added} dare${result.added === 1 ? "" : "s"}.`];
+  if (result.duplicates) parts.push(`${result.duplicates} already in the room.`);
+  if (skipped) parts.push(`${skipped} line${skipped === 1 ? "" : "s"} skipped (empty, over ${MAX_DARE_LENGTH} characters, or bad points).`);
+  if (result.overCap) parts.push(`${result.overCap} left out: rooms hold up to ${MAX_DARES_PER_ROOM} dares.`);
+  return parts.join(" ");
+}
+
+export async function addPack(roomId: string, _: FormState, form: FormData): Promise<FormState> {
+  const { room } = await requireHost(roomId);
+  const pack = PACKS.find((p) => p.id === field(form, "packId"));
+  if (!pack) return { error: "Unknown pack." };
+  const result = await insertDares(room.id, pack.dares);
+  refresh(room.id);
+  return { message: `${pack.name} pack: ${describeInsert(result)}` };
+}
+
+export async function importDares(roomId: string, _: FormState, form: FormData): Promise<FormState> {
+  const { room } = await requireHost(roomId);
+  const file = form.get("file");
+  if (!(file instanceof File) || file.size === 0) return { error: "Choose a .txt file first." };
+  if (file.size > 100 * 1024) return { error: "That file is too large (100 KB max)." };
+
+  const { dares, skipped } = parseDareText(await file.text());
+  if (!dares.length) return { error: "No dares found. Put one dare per line." };
+  const result = await insertDares(room.id, dares);
+  refresh(room.id);
+  return { message: describeInsert(result, skipped) };
+}
+
+export async function clearDares(roomId: string) {
+  const { room } = await requireHost(roomId);
+  const { error } = await db().from("dares").delete().eq("room_id", room.id);
+  if (error) throw error;
+  refresh(room.id);
 }
 
 export async function deleteDare(roomId: string, dareId: string) {
