@@ -1,0 +1,28 @@
+/* Functionality-first placeholder styling. Replace with the real design later. */
+:root { font-family: system-ui, Arial, sans-serif; color: #171717; background: #f5f5f5; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+button, input, select { font: inherit; }
+button { cursor: pointer; padding: 10px 14px; border: 1px solid #222; border-radius: 8px; background: #222; color: #fff; }
+button:disabled { opacity: 0.5; cursor: default; }
+button.secondary { background: #fff; color: #222; }
+button.danger { background: #9c1c2b; border-color: #9c1c2b; }
+button.small { padding: 4px 8px; font-size: 13px; }
+input, select { width: 100%; padding: 10px; border: 1px solid #bbb; border-radius: 8px; }
+label { display: grid; gap: 4px; font-weight: 600; }
+a { color: #9c1c2b; }
+.app { width: min(100%, 560px); min-height: 100vh; margin: 0 auto; padding: 20px 16px 60px; background: #fff; }
+.stack { display: grid; gap: 12px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.spread { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.card { padding: 16px; border: 1px solid #ddd; border-radius: 12px; }
+.muted { color: #666; }
+.error { color: #a30000; margin: 0; }
+.badge { padding: 3px 8px; border-radius: 999px; background: #eee; color: #555; font-size: 12px; }
+.dare { padding: 20px; border-radius: 14px; background: #f0e6e2; }
+.code { font-size: 28px; font-weight: 700; letter-spacing: 5px; }
+.list { list-style: none; margin: 0; padding: 0; }
+.list li { display: flex; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid #eee; }
+.grow { flex: 1; min-width: 0; }
+.proof { width: 100%; max-height: 320px; object-fit: cover; border-radius: 8px; }
+.rejected { opacity: 0.5; }
