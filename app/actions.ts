@@ -3,50 +3,57 @@
 import { randomInt, randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { getRoom, hashSecret, normalizeCode, requireHost, requirePlayer, startSession, verifySecret } from "@/lib/auth";
+import {
+  getRoomById,
+  getRoomByPin,
+  normalizeHostKey,
+  normalizePin,
+  PIN_LIFETIME_MS,
+  requireHost,
+  requirePlayer,
+  sameSecret,
+  startSession,
+} from "@/lib/auth";
 import { assignNewDare } from "@/lib/game";
+import { randomRoomName } from "@/lib/names";
 import { db, PROOF_BUCKET } from "@/lib/supabase";
-import type { Dare, FormState, Player, RoomStatus } from "@/lib/types";
+import type { Dare, FormState, Player, Room, RoomStatus } from "@/lib/types";
 
-const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O or 1/I
+const KEY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O or 1/I
 const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
 const PHOTO_TYPES: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
 const UNIQUE_VIOLATION = "23505";
 
 const field = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
-const refresh = (code: string) => revalidatePath(`/r/${code}`, "layout");
+const refresh = (roomId: string) => revalidatePath(`/r/${roomId}`, "layout");
 
-function generateCode() {
-  return Array.from({ length: 6 }, () => CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]).join("");
-}
+const randomPin = () => String(randomInt(10000)).padStart(4, "0");
+const randomHostKey = () => Array.from({ length: 8 }, () => KEY_ALPHABET[randomInt(KEY_ALPHABET.length)]).join("");
 
 // ---------- Rooms & joining ----------
 
 export async function createRoom(_: FormState, form: FormData): Promise<FormState> {
-  const partyName = field(form, "partyName");
   const hostName = field(form, "hostName");
-  const password = field(form, "password");
-  const hostPin = field(form, "hostPin");
-
-  if (!partyName || partyName.length > 40) return { error: "Party name must be 1–40 characters." };
   if (!hostName || hostName.length > 18) return { error: "Your name must be 1–18 characters." };
-  if (password.length < 4) return { error: "Room password must be at least 4 characters." };
-  if (hostPin.length < 4) return { error: "Host PIN must be at least 4 characters." };
-  if (hostPin === password) return { error: "Host PIN must be different from the room password." };
 
-  const [passwordHash, pinHash] = await Promise.all([hashSecret(password), hashSecret(hostPin)]);
-
-  let room: { id: string; code: string } | null = null;
-  for (let attempt = 0; attempt < 5 && !room; attempt++) {
+  let room: { id: string } | null = null;
+  for (let attempt = 0; attempt < 20 && !room; attempt++) {
+    const pin = randomPin();
+    // Free the PIN if it belongs to a room older than 24h, so PINs get reused.
+    await db()
+      .from("rooms")
+      .update({ code: null })
+      .eq("code", pin)
+      .lt("created_at", new Date(Date.now() - PIN_LIFETIME_MS).toISOString());
     const { data, error } = await db()
       .from("rooms")
-      .insert({ code: generateCode(), name: partyName, password_hash: passwordHash, host_pin_hash: pinHash })
-      .select("id, code")
+      .insert({ code: pin, name: randomRoomName(), host_key: randomHostKey() })
+      .select("id")
       .single();
     if (error && error.code !== UNIQUE_VIOLATION) throw error;
     room = data;
   }
-  if (!room) return { error: "Couldn't create a room code. Try again." };
+  if (!room) return { error: "Couldn't find a free PIN. Try again." };
 
   const { data: host, error } = await db()
     .from("players")
@@ -55,21 +62,18 @@ export async function createRoom(_: FormState, form: FormData): Promise<FormStat
     .single();
   if (error) throw error;
 
-  await startSession(room.code, host.id);
-  redirect(`/r/${room.code}/host`);
+  await startSession(room.id, host.id);
+  redirect(`/r/${room.id}/host`);
 }
 
+/** Join by typing a PIN (home page) or from the QR / invite link (roomId in a hidden field). */
 export async function joinRoom(_: FormState, form: FormData): Promise<FormState> {
-  const code = normalizeCode(field(form, "code"));
-  const password = field(form, "password");
   const name = field(form, "name");
-
   if (!name || name.length > 18) return { error: "Your name must be 1–18 characters." };
 
-  const room = code ? await getRoom(code) : null;
-  if (!room || !(await verifySecret(password, room.password_hash))) {
-    return { error: "That room code or password is incorrect." };
-  }
+  const roomId = field(form, "roomId");
+  const room = roomId ? await getRoomById(roomId) : await getRoomByPin(field(form, "pin"));
+  if (!room) return { error: roomId ? "This room no longer exists." : "No room with that PIN." };
 
   const { data: player, error } = await db()
     .from("players")
@@ -79,19 +83,17 @@ export async function joinRoom(_: FormState, form: FormData): Promise<FormState>
   if (error?.code === UNIQUE_VIOLATION) return { error: "Someone in this room already has that name." };
   if (error) throw error;
 
-  await startSession(room.code, player.id);
-  refresh(room.code);
-  redirect(`/r/${room.code}`);
+  await startSession(room.id, player.id);
+  refresh(room.id);
+  redirect(`/r/${room.id}`);
 }
 
 /** Lets the host get back into host controls on another device or after cookies are cleared. */
 export async function hostLogin(_: FormState, form: FormData): Promise<FormState> {
-  const code = normalizeCode(field(form, "code"));
-  const pin = field(form, "hostPin");
-
-  const room = code ? await getRoom(code) : null;
-  if (!room || !(await verifySecret(pin, room.host_pin_hash))) {
-    return { error: "That room code or host PIN is incorrect." };
+  const roomId = field(form, "roomId");
+  const room: Room | null = roomId ? await getRoomById(roomId) : await getRoomByPin(field(form, "pin"));
+  if (!room || !sameSecret(normalizeHostKey(field(form, "hostKey")), room.host_key)) {
+    return { error: "That host login code is incorrect." };
   }
 
   const { data: host, error } = await db()
@@ -102,14 +104,14 @@ export async function hostLogin(_: FormState, form: FormData): Promise<FormState
     .single();
   if (error) throw error;
 
-  await startSession(room.code, host.id);
-  redirect(`/r/${room.code}/host`);
+  await startSession(room.id, host.id);
+  redirect(`/r/${room.id}/host`);
 }
 
 // ---------- Playing ----------
 
-export async function submitProof(code: string, form: FormData): Promise<FormState> {
-  const { room, player } = await requirePlayer(code);
+export async function submitProof(roomId: string, form: FormData): Promise<FormState> {
+  const { room, player } = await requirePlayer(roomId);
   if (room.status !== "active") return { error: "The game isn't running right now." };
 
   const dareId = field(form, "dareId");
@@ -133,7 +135,7 @@ export async function submitProof(code: string, form: FormData): Promise<FormSta
   if (dareError) throw dareError;
   if (!dare) {
     await assignNewDare({ ...player, current_dare_id: null });
-    refresh(room.code);
+    refresh(room.id);
     return { error: "The host removed that dare. You've been given a new one." };
   }
 
@@ -157,21 +159,21 @@ export async function submitProof(code: string, form: FormData): Promise<FormSta
   if (insertError) throw insertError;
 
   await assignNewDare({ ...player, current_dare_id: dareId });
-  refresh(room.code);
+  refresh(room.id);
   return undefined;
 }
 
-export async function skipDare(code: string) {
-  const { room, player } = await requirePlayer(code);
+export async function skipDare(roomId: string) {
+  const { room, player } = await requirePlayer(roomId);
   if (room.status !== "active") return;
   await assignNewDare(player);
-  refresh(room.code);
+  refresh(room.id);
 }
 
 // ---------- Host controls ----------
 
-export async function setRoomStatus(code: string, status: RoomStatus) {
-  const { room } = await requireHost(code);
+export async function setRoomStatus(roomId: string, status: RoomStatus) {
+  const { room } = await requireHost(roomId);
   if (status === "active") {
     const { count, error } = await db()
       .from("dares")
@@ -182,11 +184,11 @@ export async function setRoomStatus(code: string, status: RoomStatus) {
   }
   const { error } = await db().from("rooms").update({ status }).eq("id", room.id);
   if (error) throw error;
-  refresh(room.code);
+  refresh(room.id);
 }
 
-export async function addDare(code: string, _: FormState, form: FormData): Promise<FormState> {
-  const { room } = await requireHost(code);
+export async function addDare(roomId: string, _: FormState, form: FormData): Promise<FormState> {
+  const { room } = await requireHost(roomId);
   const text = field(form, "text");
   const points = Number(field(form, "points") || 1);
   if (!text || text.length > 200) return { error: "A dare must be 1–200 characters." };
@@ -194,31 +196,31 @@ export async function addDare(code: string, _: FormState, form: FormData): Promi
 
   const { error } = await db().from("dares").insert({ room_id: room.id, text, points });
   if (error) throw error;
-  refresh(room.code);
+  refresh(room.id);
   return undefined;
 }
 
-export async function deleteDare(code: string, dareId: string) {
-  const { room } = await requireHost(code);
+export async function deleteDare(roomId: string, dareId: string) {
+  const { room } = await requireHost(roomId);
   // Players holding this dare get a new one next time their page loads (FK is ON DELETE SET NULL).
   const { error } = await db().from("dares").delete().eq("id", dareId).eq("room_id", room.id);
   if (error) throw error;
-  refresh(room.code);
+  refresh(room.id);
 }
 
-export async function removePlayer(code: string, playerId: string) {
-  const { room, player: host } = await requireHost(code);
+export async function removePlayer(roomId: string, playerId: string) {
+  const { room, player: host } = await requireHost(roomId);
   if (playerId === host.id) throw new Error("You can't remove yourself.");
 
   const { data: photos } = await db().from("submissions").select("photo_path").eq("player_id", playerId);
   const { error } = await db().from("players").delete().eq("id", playerId).eq("room_id", room.id);
   if (error) throw error;
   if (photos?.length) await db().storage.from(PROOF_BUCKET).remove(photos.map((p) => p.photo_path));
-  refresh(room.code);
+  refresh(room.id);
 }
 
-export async function setSubmissionStatus(code: string, submissionId: string, status: "approved" | "rejected") {
-  const { room } = await requireHost(code);
+export async function setSubmissionStatus(roomId: string, submissionId: string, status: "approved" | "rejected") {
+  const { room } = await requireHost(roomId);
 
   if (status === "approved") {
     // Don't restore a proof if the player has since redone that dare (no double points).
@@ -248,5 +250,5 @@ export async function setSubmissionStatus(code: string, submissionId: string, st
     const { data: owner } = await db().from("players").select("*").eq("id", sub.player_id).maybeSingle();
     if (owner && !(owner as Player).current_dare_id) await assignNewDare(owner as Player);
   }
-  refresh(room.code);
+  refresh(room.id);
 }

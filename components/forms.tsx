@@ -11,27 +11,26 @@ export function CreateRoomForm() {
   const [state, action, pending] = useActionState(createRoom, undefined);
   return (
     <form action={action} className="stack">
-      <label>Party name <input name="partyName" required maxLength={40} placeholder="Halloween Party" /></label>
       <label>Your name <input name="hostName" required maxLength={18} placeholder="Your name" /></label>
-      <label>Room password <input name="password" required minLength={4} placeholder="Guests need this to join" /></label>
-      <label>Host PIN <input name="hostPin" type="password" required minLength={4} placeholder="Only you know this" /></label>
       <button disabled={pending}>{pending ? "Creating…" : "Create room"}</button>
       <Error message={state?.error} />
     </form>
   );
 }
 
-/** Pass `code` when the room is already known (e.g. on the invite link page). */
-export function JoinRoomForm({ code }: { code?: string }) {
+/** Pass `roomId` when the room is already known (QR / invite link page); otherwise ask for the PIN. */
+export function JoinRoomForm({ roomId }: { roomId?: string }) {
   const [state, action, pending] = useActionState(joinRoom, undefined);
   return (
     <form action={action} className="stack">
-      {code ? (
-        <input type="hidden" name="code" value={code} />
+      {roomId ? (
+        <input type="hidden" name="roomId" value={roomId} />
       ) : (
-        <label>Room code <input name="code" required maxLength={6} placeholder="AB12CD" autoCapitalize="characters" /></label>
+        <label>
+          Room PIN
+          <input name="pin" required inputMode="numeric" pattern="[0-9]{4}" maxLength={4} placeholder="1234" />
+        </label>
       )}
-      <label>Room password <input name="password" type="password" required /></label>
       <label>Your name <input name="name" required maxLength={18} /></label>
       <button disabled={pending}>{pending ? "Joining…" : "Join room"}</button>
       <Error message={state?.error} />
@@ -39,24 +38,30 @@ export function JoinRoomForm({ code }: { code?: string }) {
   );
 }
 
-export function HostLoginForm({ code }: { code?: string }) {
+export function HostLoginForm({ roomId }: { roomId?: string }) {
   const [state, action, pending] = useActionState(hostLogin, undefined);
   return (
     <form action={action} className="stack" style={{ marginTop: 12 }}>
-      {code ? (
-        <input type="hidden" name="code" value={code} />
+      {roomId ? (
+        <input type="hidden" name="roomId" value={roomId} />
       ) : (
-        <label>Room code <input name="code" required maxLength={6} autoCapitalize="characters" /></label>
+        <label>
+          Room PIN
+          <input name="pin" required inputMode="numeric" pattern="[0-9]{4}" maxLength={4} />
+        </label>
       )}
-      <label>Host PIN <input name="hostPin" type="password" required /></label>
+      <label>
+        Host login code
+        <input name="hostKey" required autoCapitalize="characters" placeholder="ABCD-EFGH" />
+      </label>
       <button className="secondary" disabled={pending}>{pending ? "Checking…" : "Log in as host"}</button>
       <Error message={state?.error} />
     </form>
   );
 }
 
-export function AddDareForm({ code }: { code: string }) {
-  const [state, action, pending] = useActionState(addDare.bind(null, code), undefined);
+export function AddDareForm({ roomId }: { roomId: string }) {
+  const [state, action, pending] = useActionState(addDare.bind(null, roomId), undefined);
   return (
     <form action={action} className="stack">
       <label>New dare <input name="text" required maxLength={200} placeholder="Get someone to say 'midnight'." /></label>

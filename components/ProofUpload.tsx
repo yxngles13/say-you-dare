@@ -23,7 +23,7 @@ async function compress(file: File): Promise<Blob> {
   }
 }
 
-export function ProofUpload({ code, dareId }: { code: string; dareId: string }) {
+export function ProofUpload({ roomId, dareId }: { roomId: string; dareId: string }) {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -45,7 +45,7 @@ export function ProofUpload({ code, dareId }: { code: string; dareId: string }) 
       const form = new FormData();
       form.set("dareId", dareId);
       form.set("photo", await compress(file), "proof");
-      const result = await submitProof(code, form);
+      const result = await submitProof(roomId, form);
       if (result?.error) {
         setMessage(result.error);
       } else {

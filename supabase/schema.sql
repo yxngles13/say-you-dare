@@ -6,10 +6,9 @@
 
 create table if not exists rooms (
   id uuid primary key default gen_random_uuid(),
-  code text not null unique,
+  code text unique check (code ~ '^[0-9]{4}$'),  -- 4-digit join PIN; set to null when released for reuse
   name text not null,
-  password_hash text not null,
-  host_pin_hash text not null,
+  host_key text not null,                         -- lets the host log in on another device
   status text not null default 'lobby' check (status in ('lobby', 'active', 'ended')),
   created_at timestamptz not null default now()
 );

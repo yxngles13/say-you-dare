@@ -16,7 +16,7 @@ export default function Home() {
         <CreateRoomForm />
       </section>
       <details className="card">
-        <summary>Already hosting? Log back in with your host PIN</summary>
+        <summary>Already hosting? Log back in with your host login code</summary>
         <HostLoginForm />
       </details>
     </div>

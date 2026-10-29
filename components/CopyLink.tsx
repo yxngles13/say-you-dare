@@ -1,15 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-export function CopyLink({ path }: { path: string }) {
-  const [url, setUrl] = useState(path);
+export function CopyLink({ url }: { url: string }) {
   const [copied, setCopied] = useState(false);
-  useEffect(() => setUrl(`${window.location.origin}${path}`), [path]);
-
   return (
     <div className="row">
-      <code className="grow" style={{ overflowWrap: "anywhere" }}>{url}</code>
+      <code className="grow" style={{ overflowWrap: "anywhere", fontSize: 12 }}>{url}</code>
       <button
         className="secondary small"
         onClick={async () => {
@@ -17,7 +14,7 @@ export function CopyLink({ path }: { path: string }) {
           setCopied(true);
         }}
       >
-        {copied ? "Copied" : "Copy"}
+        {copied ? "Copied" : "Copy link"}
       </button>
     </div>
   );

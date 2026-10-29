@@ -26,3 +26,5 @@ a { color: #9c1c2b; }
 .grow { flex: 1; min-width: 0; }
 .proof { width: 100%; max-height: 320px; object-fit: cover; border-radius: 8px; }
 .rejected { opacity: 0.5; }
+.qr { width: min(100%, 240px); }
+.qr svg { display: block; width: 100%; height: auto; }

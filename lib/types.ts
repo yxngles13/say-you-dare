@@ -2,10 +2,9 @@ export type RoomStatus = "lobby" | "active" | "ended";
 
 export type Room = {
   id: string;
-  code: string;
+  code: string | null;
   name: string;
-  password_hash: string;
-  host_pin_hash: string;
+  host_key: string;
   status: RoomStatus;
   created_at: string;
 };

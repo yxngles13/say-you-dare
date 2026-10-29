@@ -5,14 +5,15 @@ import { CopyLink } from "@/components/CopyLink";
 import { AddDareForm } from "@/components/forms";
 import { getContext } from "@/lib/auth";
 import { getLeaderboard } from "@/lib/game";
+import { absoluteUrl, qrSvg } from "@/lib/qr";
 import { db, PROOF_BUCKET } from "@/lib/supabase";
 import type { Dare, Submission } from "@/lib/types";
 
-export default async function HostPage({ params }: PageProps<"/r/[code]/host">) {
-  const { code } = await params;
-  const { room, player } = await getContext(code);
+export default async function HostPage({ params }: PageProps<"/r/[id]/host">) {
+  const { id } = await params;
+  const { room, player } = await getContext(id);
   if (!room) notFound();
-  if (!player?.is_host) redirect(`/r/${room.code}`);
+  if (!player?.is_host) redirect(`/r/${room.id}`);
 
   const [{ data: dares }, { data: subs }, leaderboard] = await Promise.all([
     db().from("dares").select("*").eq("room_id", room.id).order("created_at"),
@@ -29,7 +30,11 @@ export default async function HostPage({ params }: PageProps<"/r/[code]/host">) 
   const photoUrl = new Map((signed ?? []).flatMap((s) => (s.path && s.signedUrl ? [[s.path, s.signedUrl]] : [])));
   const names = new Map(leaderboard.map((p) => [p.id, p.name]));
 
-  const status = setRoomStatus.bind(null, room.code);
+  const joinUrl = await absoluteUrl(`/r/${room.id}`);
+  const qr = await qrSvg(joinUrl);
+  const hostKey = `${room.host_key.slice(0, 4)}-${room.host_key.slice(4)}`;
+
+  const status = setRoomStatus.bind(null, room.id);
 
   return (
     <div className="stack">
@@ -38,15 +43,25 @@ export default async function HostPage({ params }: PageProps<"/r/[code]/host">) 
           <h1 style={{ marginBottom: 4 }}>{room.name}</h1>
           <span className="badge">Host panel · {room.status}</span>
         </div>
-        <Link href={`/r/${room.code}`}>Play</Link>
+        <Link href={`/r/${room.id}`}>Play</Link>
       </div>
 
       <section className="card stack">
         <h2>Invite guests</h2>
-        <div className="code">{room.code}</div>
-        <CopyLink path={`/r/${room.code}`} />
-        <p className="muted">Guests also need the room password.</p>
+        <p className="muted">Guests scan the QR code, or go to the home page and enter the PIN.</p>
+        <div className="code">{room.code ?? "PIN expired"}</div>
+        {/* Generated server-side by the qrcode library from our own URL. */}
+        <div className="qr" dangerouslySetInnerHTML={{ __html: qr }} />
+        <CopyLink url={joinUrl} />
       </section>
+
+      <details className="card">
+        <summary>Host from another phone</summary>
+        <p className="muted">
+          Open the room link on the other phone, tap &quot;I&apos;m the host&quot; and enter this code. Keep it private.
+        </p>
+        <div className="code">{hostKey}</div>
+      </details>
 
       <section className="card stack">
         <h2>Game</h2>
@@ -61,7 +76,7 @@ export default async function HostPage({ params }: PageProps<"/r/[code]/host">) 
               <button className="danger">End game</button>
             </form>
           )}
-          <Link href={`/r/${room.code}/host`}>Refresh</Link>
+          <Link href={`/r/${room.id}/host`}>Refresh</Link>
         </div>
         {!dareList.length && <p className="muted">Add at least one dare to start.</p>}
       </section>
@@ -74,13 +89,13 @@ export default async function HostPage({ params }: PageProps<"/r/[code]/host">) 
             <li key={dare.id}>
               <span className="grow">{dare.text}</span>
               <span className="badge">{dare.points} pt</span>
-              <form action={deleteDare.bind(null, room.code, dare.id)}>
+              <form action={deleteDare.bind(null, room.id, dare.id)}>
                 <button className="secondary small">Delete</button>
               </form>
             </li>
           ))}
         </ul>
-        <AddDareForm code={room.code} />
+        <AddDareForm roomId={room.id} />
       </section>
 
       <section className="card stack">
@@ -92,7 +107,7 @@ export default async function HostPage({ params }: PageProps<"/r/[code]/host">) 
               <span className="grow">{row.name}{row.isHost && " (host)"}</span>
               <strong>{row.points} pts</strong>
               {row.id !== player.id && (
-                <form action={removePlayer.bind(null, room.code, row.id)}>
+                <form action={removePlayer.bind(null, room.id, row.id)}>
                   <button className="secondary small">Remove</button>
                 </form>
               )}
@@ -111,7 +126,7 @@ export default async function HostPage({ params }: PageProps<"/r/[code]/host">) 
                 <strong>{names.get(sub.player_id) ?? "Removed player"}</strong> · {sub.dare_text} · {sub.points} pt
               </span>
               <form
-                action={setSubmissionStatus.bind(null, room.code, sub.id, sub.status === "approved" ? "rejected" : "approved")}
+                action={setSubmissionStatus.bind(null, room.id, sub.id, sub.status === "approved" ? "rejected" : "approved")}
               >
                 <button className="secondary small">{sub.status === "approved" ? "Reject" : "Restore"}</button>
               </form>

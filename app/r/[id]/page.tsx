@@ -8,26 +8,26 @@ import { ProofUpload } from "@/components/ProofUpload";
 import { getContext } from "@/lib/auth";
 import { ensureDare, getLeaderboard } from "@/lib/game";
 
-export default async function RoomPage({ params }: PageProps<"/r/[code]">) {
-  const { code } = await params;
-  const { room, player } = await getContext(code);
+export default async function RoomPage({ params }: PageProps<"/r/[id]">) {
+  const { id } = await params;
+  const { room, player } = await getContext(id);
   if (!room) notFound();
 
-  // Not joined yet: this is the invite-link landing page.
+  // Not joined yet: this is where the QR code / invite link lands.
   if (!player) {
     return (
       <div className="stack">
         <div>
           <h1>{room.name}</h1>
-          <span className="badge">Room {room.code}</span>
+          <span className="badge">PIN {room.code ?? "expired"}</span>
         </div>
         <section className="card stack">
           <h2>Join the party</h2>
-          <JoinRoomForm code={room.code} />
+          <JoinRoomForm roomId={room.id} />
         </section>
         <details className="card">
           <summary>I&apos;m the host</summary>
-          <HostLoginForm code={room.code} />
+          <HostLoginForm roomId={room.id} />
         </details>
       </div>
     );
@@ -45,9 +45,9 @@ export default async function RoomPage({ params }: PageProps<"/r/[code]">) {
       <div className="spread">
         <div>
           <h1 style={{ marginBottom: 4 }}>{room.name}</h1>
-          <span className="badge">Room {room.code}</span>
+          <span className="badge">PIN {room.code ?? "expired"}</span>
         </div>
-        {player.is_host && <Link href={`/r/${room.code}/host`}>Host panel</Link>}
+        {player.is_host && <Link href={`/r/${room.id}/host`}>Host panel</Link>}
       </div>
 
       <p className="muted">
@@ -68,8 +68,8 @@ export default async function RoomPage({ params }: PageProps<"/r/[code]">) {
           {dare ? (
             <>
               <h2 style={{ margin: 0 }}>{dare.text}</h2>
-              <ProofUpload key={dare.id} code={room.code} dareId={dare.id} />
-              <form action={skipDare.bind(null, room.code)}>
+              <ProofUpload key={dare.id} roomId={room.id} dareId={dare.id} />
+              <form action={skipDare.bind(null, room.id)}>
                 <button className="secondary small">Skip this dare</button>
               </form>
             </>
