@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Say You Dare</title>
+    <style>
+      /* Temporary functionality-first styling. The visual system will be replaced later. */
+      :root { font-family: Arial, sans-serif; color: #171717; background: #f5f5f5; }
+      * { box-sizing: border-box; }
+      body { margin: 0; }
+      button, input { font: inherit; }
+      button { cursor: pointer; }
+      .app { width: min(100%, 520px); min-height: 100vh; margin: 0 auto; background: white; }
+      .view { display: none; padding: 24px 18px 110px; min-height: 100vh; }
+      .view.active { display: block; }
+      .stack { display: grid; gap: 12px; }
+      .card { padding: 18px; border: 1px solid #ddd; border-radius: 12px; background: #fff; }
+      h1, h2, h3, p { margin-top: 0; }
+      h1 { margin-bottom: 8px; }
+      .muted { color: #666; }
+      .error { min-height: 20px; color: #a30000; }
+      label { display: grid; gap: 6px; font-weight: 600; }
+      input { width: 100%; padding: 12px; border: 1px solid #bbb; border-radius: 8px; }
+      button { padding: 12px 14px; border: 1px solid #222; border-radius: 8px; background: #222; color: white; }
+      button.secondary { background: white; color: #222; }
+      button.danger { background: #9c1c2b; border-color: #9c1c2b; }
+      .button-row { display: flex; flex-wrap: wrap; gap: 8px; }
+      .room-code { padding: 14px; border: 2px dashed #444; text-align: center; font-size: 28px; letter-spacing: 5px; font-weight: 700; }
+      .hidden { display: none !important; }
+      .topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 20px; }
+      .topbar h2 { margin: 0; }
+      .badge { padding: 5px 8px; border-radius: 999px; background: #eee; color: #555; font-size: 12px; }
+      .dare { min-height: 180px; display: grid; align-content: center; gap: 14px; padding: 24px; border-radius: 14px; background: #f0e6e2; }
+      .dare h2 { margin: 0; }
+      .dare small { color: #7b1c2b; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+      .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 14px 0; }
+      .stat { padding: 12px; border: 1px solid #ddd; border-radius: 10px; text-align: center; }
+      .stat strong { display: block; font-size: 22px; }
+      .stat span { color: #666; font-size: 12px; }
+      .proof-preview { width: 100%; max-height: 300px; object-fit: cover; border-radius: 8px; }
+      .rank-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #eee; }
+      .rank-row strong:first-child { width: 24px; }
+      .rank-name { flex: 1; }
+      .rank-score { font-weight: 700; }
+      .bottom-nav { position: fixed; bottom: 0; left: 50%; z-index: 10; display: grid; grid-template-columns: repeat(3, 1fr); width: min(100%, 520px); transform: translateX(-50%); border-top: 1px solid #ddd; background: white; }
+      .bottom-nav button { border: 0; border-radius: 0; background: white; color: #666; font-size: 12px; }
+      .bottom-nav button.active { color: #9c1c2b; font-weight: 700; }
+      .preview-note { padding: 10px; border-radius: 8px; background: #fff7e5; color: #714d00; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <main class="app">
+      <section id="welcomeView" class="view active">
+        <h1>Say You Dare</h1>
+        <p class="muted">A mobile party game built around secret dares.</p>
+        <div class="stack">
+          <button id="showCreateButton">Create a party room</button>
+          <button id="showJoinButton" class="secondary">Join a party room</button>
+        </div>
+      </section>
+
+      <section id="createView" class="view">
+        <h1>Create a party room</h1>
+        <p class="muted">Set up a room and share its code or QR link with your guests.</p>
+        <form id="createForm" class="stack">
+          <label>Party name <input id="partyNameInput" required maxlength="40" placeholder="Halloween Party" /></label>
+          <label>Room password <input id="roomPasswordInput" required minlength="4" placeholder="At least 4 characters" /></label>
+          <label>Host PIN <input id="hostPinInput" required minlength="4" placeholder="For host controls" /></label>
+          <button type="submit">Create room</button>
+          <button type="button" class="secondary backButton">Back</button>
+        </form>
+        <p id="createError" class="error"></p>
+      </section>
+
+      <section id="createdView" class="view">
+        <h1>Room created</h1>
+        <p class="muted">Share this code with your guests. QR generation will be connected next.</p>
+        <div id="createdRoomCode" class="room-code"></div>
+        <div class="card stack">
+          <div><strong>Party:</strong> <span id="createdPartyName"></span></div>
+          <div><strong>Join link:</strong> <span id="createdJoinLink" class="muted"></span></div>
+        </div>
+        <div class="button-row">
+          <button id="copyJoinLinkButton">Copy join link</button>
+          <button id="enterAsHostButton" class="secondary">Enter as host</button>
+        </div>
+        <p id="copyMessage" class="muted"></p>
+      </section>
+
+      <section id="joinView" class="view">
+        <h1>Join a party room</h1>
+        <form id="joinForm" class="stack">
+          <label>Room code <input id="joinCodeInput" required maxlength="6" placeholder="AB12CD" /></label>
+          <label>Room password <input id="joinPasswordInput" required type="password" placeholder="Room password" /></label>
+          <label>Your name <input id="joinNameInput" required maxlength="18" placeholder="Your name" /></label>
+          <button type="submit">Join room</button>
+          <button type="button" class="secondary backButton">Back</button>
+        </form>
+        <p id="joinError" class="error"></p>
+      </section>
+
+      <section id="gameView" class="view">
+        <div class="topbar">
+          <div>
+            <h2 id="gamePartyName"></h2>
+            <span id="gameRoomCode" class="badge"></span>
+          </div>
+          <button id="leaveRoomButton" class="secondary">Leave</button>
+        </div>
+
+        <div id="gameHomePanel" class="game-panel">
+          <p class="muted">Welcome, <strong id="gamePlayerName"></strong>.</p>
+          <div class="stats">
+            <div class="stat"><strong id="playerPoints">0</strong><span>Points</span></div>
+            <div class="stat"><strong id="playerCompleted">0</strong><span>Completed</span></div>
+            <div class="stat"><strong id="playerRank">-</strong><span>Rank</span></div>
+          </div>
+          <div class="dare">
+            <small>Your current dare</small>
+            <h2 id="currentDare">Loading...</h2>
+            <p id="currentDareNote" class="muted"></p>
+            <button id="openCameraButton">Take proof photo</button>
+          </div>
+        </div>
+
+        <div id="gameCameraPanel" class="game-panel hidden">
+          <h2>Record your proof</h2>
+          <p class="muted">Use your phone camera, then review the photo before submitting.</p>
+          <input id="photoInput" type="file" accept="image/*" capture="environment" />
+          <img id="photoPreview" class="proof-preview hidden" alt="Selected proof" />
+          <div class="button-row">
+            <button id="submitProofButton" class="hidden">Submit proof</button>
+            <button id="retakeButton" class="secondary hidden">Retake</button>
+          </div>
+          <p id="proofMessage" class="muted"></p>
+        </div>
+
+        <div id="gameLeaderboardPanel" class="game-panel hidden">
+          <h2>Leaderboard</h2>
+          <div id="leaderboardList" class="card"></div>
+        </div>
+      </section>
+
+      <nav id="bottomNav" class="bottom-nav hidden">
+        <button data-panel="gameHomePanel" class="active">Home</button>
+        <button data-panel="gameCameraPanel">Camera</button>
+        <button data-panel="gameLeaderboardPanel">Leaderboard</button>
+      </nav>
+    </main>
+
+    <script>
+      const STORAGE_KEY = "say-you-dare-local-prototype";
+      const session = { roomCode: null, playerId: null, isHost: false };
+
+      // Temporary prompts. Replace this list with host-created prompts later.
+      const TEMPORARY_DARES = [
+        "Get someone to give you a dramatic villain monologue.",
+        "Convince someone to take a mysterious selfie with you.",
+        "Get someone to say the word 'midnight'."
+      ];
+
+      const $ = (id) => document.getElementById(id);
+      const readStore = () => JSON.parse(localStorage.getItem(STORAGE_KEY) || '{"rooms":{}}');
+      const writeStore = (data) => localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+      function showView(id) {
+        document.querySelectorAll(".view").forEach((view) => view.classList.toggle("active", view.id === id));
+        $("bottomNav").classList.toggle("hidden", id !== "gameView");
+      }
+
+      function clearErrors() {
+        $("createError").textContent = "";
+        $("joinError").textContent = "";
+      }
+
+      function generateRoomCode(rooms) {
+        const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        let code = "";
+        do {
+          code = Array.from({ length: 6 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("");
+        } while (rooms[code]);
+        return code;
+      }
+
+      function generateId(prefix) {
+        return `${prefix}_${crypto.randomUUID ? crypto.randomUUID() : Date.now() + Math.random()}`;
+      }
+
+      function createRoom(event) {
+        event.preventDefault();
+        clearErrors();
+        const data = readStore();
+        const partyName = $("partyNameInput").value.trim();
+        const password = $("roomPasswordInput").value;
+        const hostPin = $("hostPinInput").value;
+        if (password.length < 4 || hostPin.length < 4) {
+          $("createError").textContent = "Password and host PIN must be at least four characters.";
+          return;
+        }
+        const code = generateRoomCode(data.rooms);
+        data.rooms[code] = {
+          code,
+          partyName,
+          password,
+          hostPin,
+          status: "lobby",
+          dares: TEMPORARY_DARES,
+          players: {},
+          submissions: [],
+          createdAt: new Date().toISOString()
+        };
+        writeStore(data);
+        session.roomCode = code;
+        session.isHost = true;
+        $("createdRoomCode").textContent = code;
+        $("createdPartyName").textContent = partyName;
+        $("createdJoinLink").textContent = `${location.origin}${location.pathname}?room=${code}`;
+        showView("createdView");
+      }
+
+      function joinRoom(event) {
+        event.preventDefault();
+        clearErrors();
+        const code = $("joinCodeInput").value.trim().toUpperCase();
+        const password = $("joinPasswordInput").value;
+        const name = $("joinNameInput").value.trim();
+        const data = readStore();
+        const room = data.rooms[code];
+        if (!room || room.password !== password) {
+          $("joinError").textContent = "That room code or password is incorrect.";
+          return;
+        }
+        if (!name) {
+          $("joinError").textContent = "Enter a name to join the room.";
+          return;
+        }
+        const playerId = generateId("player");
+        room.players[playerId] = {
+          id: playerId,
+          name,
+          points: 0,
+          completed: 0,
+          dareIndex: 0,
+          currentDare: room.dares[0],
+          joinedAt: new Date().toISOString()
+        };
+        writeStore(data);
+        session.roomCode = code;
+        session.playerId = playerId;
+        session.isHost = false;
+        enterGame();
+      }
+
+      function enterAsHost() {
+        const data = readStore();
+        const room = data.rooms[session.roomCode];
+        const playerId = generateId("host");
+        room.players[playerId] = {
+          id: playerId,
+          name: "Host",
+          points: 0,
+          completed: 0,
+          dareIndex: 0,
+          currentDare: room.dares[0],
+          joinedAt: new Date().toISOString()
+        };
+        writeStore(data);
+        session.playerId = playerId;
+        enterGame();
+      }
+
+      function currentRoomAndPlayer() {
+        const data = readStore();
+        const room = data.rooms[session.roomCode];
+        const player = room?.players[session.playerId];
+        return { data, room, player };
+      }
+
+      function enterGame() {
+        const { room, player } = currentRoomAndPlayer();
+        if (!room || !player) return showView("welcomeView");
+        $("gamePartyName").textContent = room.partyName;
+        $("gameRoomCode").textContent = `Room ${room.code}`;
+        $("gamePlayerName").textContent = player.name;
+        renderGame();
+        showView("gameView");
+      }
+
+      function renderGame() {
+        const { room, player } = currentRoomAndPlayer();
+        if (!room || !player) return;
+        $("playerPoints").textContent = player.points;
+        $("playerCompleted").textContent = player.completed;
+        $("currentDare").textContent = player.currentDare || "No dare assigned.";
+        $("currentDareNote").textContent = player.currentDare ? "Complete it, capture proof, and submit it to earn a point." : "Ask the host to add a dare.";
+        const ranking = Object.values(room.players).sort((a, b) => b.points - a.points);
+        $("playerRank").textContent = ranking.findIndex((item) => item.id === player.id) + 1;
+        $("leaderboardList").innerHTML = ranking.map((item, index) => `
+          <div class="rank-row">
+            <strong>${index + 1}</strong>
+            <span class="rank-name">${escapeHtml(item.name)}${item.id === player.id ? " (you)" : ""}</span>
+            <span class="rank-score">${item.points} pts</span>
+          </div>
+        `).join("");
+      }
+
+      function escapeHtml(value) {
+        return value.replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[character]));
+      }
+
+      function showPanel(panelId) {
+        document.querySelectorAll(".game-panel").forEach((panel) => panel.classList.toggle("hidden", panel.id !== panelId));
+        document.querySelectorAll(".bottom-nav button").forEach((button) => button.classList.toggle("active", button.dataset.panel === panelId));
+        if (panelId === "gameLeaderboardPanel") renderGame();
+      }
+
+      function completeProof() {
+        const input = $("photoInput");
+        if (!input.files.length) {
+          $("proofMessage").textContent = "Choose a photo first.";
+          return;
+        }
+        const data = readStore();
+        const room = data.rooms[session.roomCode];
+        const player = room.players[session.playerId];
+        player.points += 1;
+        player.completed += 1;
+        player.dareIndex += 1;
+        player.currentDare = room.dares[player.dareIndex % room.dares.length];
+        room.submissions.push({ playerId: player.id, dare: player.currentDare, submittedAt: new Date().toISOString() });
+        writeStore(data);
+        $("proofMessage").textContent = "Proof submitted. You earned 1 point.";
+        $("submitProofButton").classList.add("hidden");
+        $("retakeButton").classList.add("hidden");
+        $("photoInput").value = "";
+        renderGame();
+        setTimeout(() => showPanel("gameHomePanel"), 700);
+      }
+
+      $("showCreateButton").addEventListener("click", () => showView("createView"));
+      $("showJoinButton").addEventListener("click", () => showView("joinView"));
+      document.querySelectorAll(".backButton").forEach((button) => button.addEventListener("click", () => showView("welcomeView")));
+      $("createForm").addEventListener("submit", createRoom);
+      $("joinForm").addEventListener("submit", joinRoom);
+      $("enterAsHostButton").addEventListener("click", enterAsHost);
+      $("copyJoinLinkButton").addEventListener("click", async () => {
+        const text = $("createdJoinLink").textContent;
+        try { await navigator.clipboard.writeText(text); $("copyMessage").textContent = "Join link copied."; }
+        catch { $("copyMessage").textContent = text; }
+      });
+      $("openCameraButton").addEventListener("click", () => showPanel("gameCameraPanel"));
+      $("photoInput").addEventListener("change", (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+        $("photoPreview").src = URL.createObjectURL(file);
+        $("photoPreview").classList.remove("hidden");
+        $("submitProofButton").classList.remove("hidden");
+        $("retakeButton").classList.remove("hidden");
+        $("proofMessage").textContent = "Review your photo, then submit it.";
+      });
+      $("retakeButton").addEventListener("click", () => { $("photoInput").value = ""; $("photoInput").click(); });
+      $("submitProofButton").addEventListener("click", completeProof);
+      $("leaveRoomButton").addEventListener("click", () => {
+        session.roomCode = null;
+        session.playerId = null;
+        session.isHost = false;
+        showView("welcomeView");
+      });
+      document.querySelectorAll(".bottom-nav button").forEach((button) => button.addEventListener("click", () => showPanel(button.dataset.panel)));
+
+      const roomFromUrl = new URLSearchParams(location.search).get("room");
+      if (roomFromUrl) {
+        $("joinCodeInput").value = roomFromUrl.toUpperCase();
+        showView("joinView");
+      }
+    </script>
+  </body>
+</html>
