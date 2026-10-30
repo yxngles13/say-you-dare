@@ -9,6 +9,5 @@
 
 .board { margin-top: 12px; padding-top: 16px; border-top: 1px solid #2b2424; }
 .board h2 { margin: 0 0 8px; text-align: center; font: 400 28px var(--font-blackletter), serif; }
-.board :global(.list li) { border-bottom-color: #2b2424; }
 
 .awaiting { margin: 0; text-align: center; color: #8a7f76; font-size: 12px; letter-spacing: 0.15em; text-transform: uppercase; }

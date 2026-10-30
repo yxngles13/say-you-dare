@@ -51,3 +51,15 @@ export type LeaderboardRow = {
 };
 
 export type FormState = { error?: string; message?: string } | undefined;
+
+export type PollStatus = "draft" | "live" | "revealed";
+
+export type Poll = {
+  id: string;
+  room_id: string;
+  question: string;
+  status: PollStatus;
+  asked_at: string | null;
+  revealed_at: string | null;
+  created_at: string;
+};

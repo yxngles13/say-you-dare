@@ -1,0 +1,9 @@
+.picker { display: grid; gap: 12px; text-align: center; }
+.search { font-size: 16px; text-align: center; }
+.names { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+.names button {
+  padding: 10px 16px; border-radius: 2px; letter-spacing: 0.08em;
+  background: var(--ink); color: #1b1515; border: 1px solid var(--ink);
+}
+.names button:hover:not(:disabled) { background: var(--blood); border-color: var(--blood-edge); color: #fff; filter: none; }
+.picker :global(.muted) { margin: 0; }

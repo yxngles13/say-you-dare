@@ -61,6 +61,8 @@ label {
 label input, label select { font-size: 16px; letter-spacing: 0.05em; text-transform: none; } /* 16px stops iOS zooming */
 
 .app { width: min(100%, 560px); min-height: 100vh; margin: 0 auto; padding: 20px 16px 60px; }
+/* Player screens leave room for the fixed bottom nav. */
+.app:has(nav[aria-label="Game"]) { padding-bottom: 110px; }
 .stack { display: grid; gap: 12px; }
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .spread { display: flex; justify-content: space-between; align-items: center; gap: 12px; }

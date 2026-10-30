@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { claimDare, skipDare } from "@/app/actions";
+import { NamePicker } from "@/components/NamePicker";
 import type { RoomStatus } from "@/lib/types";
 import styles from "./DareTray.module.css";
 
@@ -19,6 +20,7 @@ type Props = {
 };
 
 const LONG_DARE = 90;
+
 
 function seenKey(roomId: string, playerId: string) {
   return `syd:envelope:${roomId}:${playerId}`;
@@ -157,13 +159,7 @@ export function DareTray({ roomId, playerId, status, dare, others, ending }: Pro
         <div className={styles.witness}>
           <h3>Who saw you do it?</h3>
           {others.length ? (
-            <div className={styles.names}>
-              {others.map((other) => (
-                <button key={other.id} type="button" disabled={pending} onClick={() => claim(dare.id, other.id)}>
-                  {other.name}
-                </button>
-              ))}
-            </div>
+            <NamePicker people={others} disabled={pending} onPick={(witnessId) => claim(dare.id, witnessId)} />
           ) : (
             <p className="muted">No one else is here yet. You need a witness.</p>
           )}

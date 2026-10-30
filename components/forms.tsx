@@ -1,7 +1,8 @@
 "use client";
 
 import { useActionState } from "react";
-import { addDare, addPack, createRoom, hostLogin, importDares, joinRoom } from "@/app/actions";
+import { addDare, addPack, addPoll, addPollPack, createRoom, hostLogin, importDares, joinRoom } from "@/app/actions";
+import { MAX_POLL_LENGTH } from "@/lib/pollPacks";
 
 function Error({ message }: { message?: string }) {
   return message ? <p className="error">{message}</p> : null;
@@ -107,6 +108,34 @@ export function ImportDaresForm({ roomId }: { roomId: string }) {
       <button className="secondary" disabled={pending}>{pending ? "Importing…" : "Import"}</button>
       <Error message={state?.error} />
       {state?.message && <p className="muted">{state.message}</p>}
+    </form>
+  );
+}
+
+export function AddPollPackButton({ roomId, packId, name, count }: { roomId: string; packId: string; name: string; count: number }) {
+  const [state, action, pending] = useActionState(addPollPack.bind(null, roomId), undefined);
+  return (
+    <form action={action} className="stack">
+      <input type="hidden" name="packId" value={packId} />
+      <button className="secondary" disabled={pending}>
+        {pending ? "Adding…" : `Add ${name} polls (${count})`}
+      </button>
+      <Error message={state?.error} />
+      {state?.message && <p className="muted">{state.message}</p>}
+    </form>
+  );
+}
+
+export function AddPollForm({ roomId }: { roomId: string }) {
+  const [state, action, pending] = useActionState(addPoll.bind(null, roomId), undefined);
+  return (
+    <form action={action} className="stack">
+      <label>
+        Who&apos;s most likely to…
+        <input name="question" required maxLength={MAX_POLL_LENGTH} placeholder="befriend the ghost instead of running?" />
+      </label>
+      <button disabled={pending}>{pending ? "Adding…" : "Add poll"}</button>
+      <Error message={state?.error} />
     </form>
   );
 }

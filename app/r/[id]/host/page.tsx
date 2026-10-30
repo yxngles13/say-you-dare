@@ -1,11 +1,23 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { clearDares, deleteDare, removePlayer, setRoomStatus, setSubmissionStatus } from "@/app/actions";
+import {
+  askPoll,
+  clearDares,
+  deleteDare,
+  deletePoll,
+  removePlayer,
+  revealPoll,
+  setRoomStatus,
+  setSubmissionStatus,
+} from "@/app/actions";
+import { AutoRefresh } from "@/components/AutoRefresh";
 import { CopyLink } from "@/components/CopyLink";
-import { AddDareForm, AddPackButton, ImportDaresForm } from "@/components/forms";
+import { AddDareForm, AddPackButton, AddPollForm, AddPollPackButton, ImportDaresForm } from "@/components/forms";
 import { getContext } from "@/lib/auth";
 import { getLeaderboard } from "@/lib/game";
 import { PACKS } from "@/lib/packs";
+import { POLL_PACKS } from "@/lib/pollPacks";
+import { getRoomPolls, tally } from "@/lib/polls";
 import { absoluteUrl, qrSvg } from "@/lib/qr";
 import { db, PROOF_BUCKET } from "@/lib/supabase";
 import type { Dare, Submission, SubmissionStatus } from "@/lib/types";
@@ -22,11 +34,14 @@ export default async function HostPage({ params }: PageProps<"/r/[id]/host">) {
   if (!room) notFound();
   if (!player?.is_host) redirect(`/r/${room.id}`);
 
-  const [{ data: dares }, { data: subs }, leaderboard] = await Promise.all([
+  const [{ data: dares }, { data: subs }, leaderboard, { polls, votes }] = await Promise.all([
     db().from("dares").select("*").eq("room_id", room.id).order("created_at"),
     db().from("submissions").select("*").eq("room_id", room.id).order("created_at", { ascending: false }).limit(50),
     getLeaderboard(room.id),
+    getRoomPolls(room.id),
   ]);
+  const livePoll = polls.find((poll) => poll.status === "live");
+  const liveVoteCount = livePoll ? votes.filter((vote) => vote.poll_id === livePoll.id).length : 0;
   const dareList = (dares ?? []) as Dare[];
   const submissions = (subs ?? []) as Submission[];
 
@@ -46,6 +61,7 @@ export default async function HostPage({ params }: PageProps<"/r/[id]/host">) {
 
   return (
     <div className="stack">
+      <AutoRefresh />
       <div className="spread">
         <div>
           <h1 style={{ marginBottom: 4 }}>{room.name}</h1>
@@ -87,6 +103,52 @@ export default async function HostPage({ params }: PageProps<"/r/[id]/host">) {
           <Link href={`/r/${room.id}/host`}>Refresh</Link>
         </div>
         {!dareList.length && <p className="muted">Add at least one dare to start.</p>}
+      </section>
+
+      <section className="card stack">
+        <h2>Polls ({polls.length})</h2>
+        <p className="muted">Ask the room &ldquo;Who&apos;s most likely to…&rdquo; one poll at a time, then reveal the winner on every phone.</p>
+        {livePoll && (
+          <div className="card stack" style={{ borderColor: "var(--blood-edge)" }}>
+            <span className="eyebrow">live now</span>
+            <strong style={{ fontWeight: 400 }}>Who&apos;s most likely to {livePoll.question}</strong>
+            <span className="muted">
+              {liveVoteCount} of {leaderboard.length} voted
+            </span>
+            <form action={revealPoll.bind(null, room.id, livePoll.id)}>
+              <button>Reveal</button>
+            </form>
+          </div>
+        )}
+        <ul className="list">
+          {polls.map((poll) => {
+            const winner = poll.status === "revealed" ? tally(votes, poll.id, names)[0] : undefined;
+            return (
+              <li key={poll.id}>
+                <span className="grow">
+                  …{poll.question}
+                  {poll.status === "revealed" && (
+                    <span className="muted"> · {winner ? `${winner.name} won` : "no votes"}</span>
+                  )}
+                </span>
+                {poll.status === "draft" && (
+                  <form action={askPoll.bind(null, room.id, poll.id)}>
+                    <button className="small" disabled={!!livePoll}>Ask</button>
+                  </form>
+                )}
+                {poll.status !== "live" && (
+                  <form action={deletePoll.bind(null, room.id, poll.id)}>
+                    <button className="secondary small">Delete</button>
+                  </form>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+        {POLL_PACKS.map((pack) => (
+          <AddPollPackButton key={pack.id} roomId={room.id} packId={pack.id} name={pack.name} count={pack.questions.length} />
+        ))}
+        <AddPollForm roomId={room.id} />
       </section>
 
       <section className="card stack">

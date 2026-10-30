@@ -1,6 +1,6 @@
 "use server";
 
-import { randomInt, randomUUID } from "node:crypto";
+import { randomInt } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
@@ -16,13 +16,12 @@ import {
 } from "@/lib/auth";
 import { assignNewDare } from "@/lib/game";
 import { randomRoomName } from "@/lib/names";
+import { MAX_POLL_LENGTH, MAX_POLLS_PER_ROOM, normalizeQuestion, POLL_PACKS } from "@/lib/pollPacks";
 import { MAX_DARE_LENGTH, MAX_DARES_PER_ROOM, PACKS, parseDareText, type PackDare } from "@/lib/packs";
 import { db, PROOF_BUCKET } from "@/lib/supabase";
 import type { Dare, FormState, Player, Room, RoomStatus } from "@/lib/types";
 
 const KEY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O or 1/I
-const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
-const PHOTO_TYPES: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
 const UNIQUE_VIOLATION = "23505";
 
 const field = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
@@ -111,59 +110,6 @@ export async function hostLogin(_: FormState, form: FormData): Promise<FormState
 
 // ---------- Playing ----------
 
-export async function submitProof(roomId: string, form: FormData): Promise<FormState> {
-  const { room, player } = await requirePlayer(roomId);
-  if (room.status !== "active") return { error: "The game isn't running right now." };
-
-  const dareId = field(form, "dareId");
-  const photo = form.get("photo");
-  if (!(photo instanceof File) || photo.size === 0) return { error: "Choose a photo first." };
-  if (photo.size > MAX_PHOTO_BYTES) return { error: "That photo is too large (4 MB max)." };
-  const extension = PHOTO_TYPES[photo.type];
-  if (!extension) return { error: "Photos must be JPEG, PNG or WebP." };
-
-  // Claim the dare first, so a double-tap can't score the same dare twice.
-  const { data: claimed, error: claimError } = await db()
-    .from("players")
-    .update({ current_dare_id: null })
-    .eq("id", player.id)
-    .eq("current_dare_id", dareId)
-    .select("id");
-  if (claimError) throw claimError;
-  if (!claimed?.length) return { error: "That dare is no longer yours. Refresh to see your current one." };
-
-  const { data: dare, error: dareError } = await db().from("dares").select("*").eq("id", dareId).maybeSingle();
-  if (dareError) throw dareError;
-  if (!dare) {
-    await assignNewDare({ ...player, current_dare_id: null });
-    refresh(room.id);
-    return { error: "The host removed that dare. You've been given a new one." };
-  }
-
-  const path = `${room.id}/${player.id}/${randomUUID()}.${extension}`;
-  const { error: uploadError } = await db()
-    .storage.from(PROOF_BUCKET)
-    .upload(path, photo, { contentType: photo.type });
-  if (uploadError) {
-    await db().from("players").update({ current_dare_id: dareId }).eq("id", player.id);
-    return { error: "Upload failed. Please try again." };
-  }
-
-  const { error: insertError } = await db().from("submissions").insert({
-    room_id: room.id,
-    player_id: player.id,
-    dare_id: dare.id,
-    dare_text: (dare as Dare).text,
-    points: (dare as Dare).points,
-    photo_path: path,
-  });
-  if (insertError) throw insertError;
-
-  await assignNewDare({ ...player, current_dare_id: dareId });
-  refresh(room.id);
-  return undefined;
-}
-
 /** Claim the current dare as done, naming another player who saw it. Points wait for their word. */
 export async function claimDare(roomId: string, dareId: string, witnessId: string): Promise<FormState> {
   const { room, player } = await requirePlayer(roomId);
@@ -241,6 +187,25 @@ export async function skipDare(roomId: string) {
   if (room.status !== "active") return;
   await assignNewDare(player);
   refresh(room.id);
+}
+
+/** Cast this player's one vote in the room's live poll. */
+export async function votePoll(roomId: string, pollId: string, targetId: string): Promise<FormState> {
+  const { room, player } = await requirePlayer(roomId);
+
+  const [{ data: poll, error: pollError }, { data: target, error: targetError }] = await Promise.all([
+    db().from("polls").select("status").eq("id", pollId).eq("room_id", room.id).maybeSingle(),
+    db().from("players").select("id").eq("id", targetId).eq("room_id", room.id).maybeSingle(),
+  ]);
+  if (pollError) throw pollError;
+  if (targetError) throw targetError;
+  if (poll?.status !== "live") return { error: "Voting on that poll has closed." };
+  if (!target) return { error: "That player has left the party. Pick someone else." };
+
+  const { error } = await db().from("poll_votes").insert({ poll_id: pollId, voter_id: player.id, target_id: targetId });
+  if (error && error.code !== UNIQUE_VIOLATION) throw error; // already voted: keep the first vote
+  refresh(room.id);
+  return undefined;
 }
 
 // ---------- Host controls ----------
@@ -384,5 +349,80 @@ export async function setSubmissionStatus(roomId: string, submissionId: string, 
     const { data: owner } = await db().from("players").select("*").eq("id", sub.player_id).maybeSingle();
     if (owner && !(owner as Player).current_dare_id) await assignNewDare(owner as Player);
   }
+  refresh(room.id);
+}
+
+// ---------- Polls (host) ----------
+
+/** Insert polls into a room, skipping questions it already has and respecting the room cap. */
+async function insertPolls(roomId: string, questions: string[]): Promise<number> {
+  const { data: existing, error } = await db().from("polls").select("question").eq("room_id", roomId);
+  if (error) throw error;
+  const seen = new Set((existing ?? []).map((p) => p.question.toLowerCase()));
+  const fresh = questions.filter((q) => {
+    const key = q.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const toInsert = fresh.slice(0, Math.max(0, MAX_POLLS_PER_ROOM - (existing?.length ?? 0)));
+  if (toInsert.length) {
+    const { error: insertError } = await db().from("polls").insert(toInsert.map((question) => ({ room_id: roomId, question })));
+    if (insertError) throw insertError;
+  }
+  return toInsert.length;
+}
+
+export async function addPollPack(roomId: string, _: FormState, form: FormData): Promise<FormState> {
+  const { room } = await requireHost(roomId);
+  const pack = POLL_PACKS.find((p) => p.id === field(form, "packId"));
+  if (!pack) return { error: "Unknown pack." };
+  const added = await insertPolls(room.id, pack.questions);
+  refresh(room.id);
+  return { message: `${pack.name} polls: added ${added}.` };
+}
+
+export async function addPoll(roomId: string, _: FormState, form: FormData): Promise<FormState> {
+  const { room } = await requireHost(roomId);
+  const question = normalizeQuestion(field(form, "question"));
+  if (question.length < 2 || question.length > MAX_POLL_LENGTH) {
+    return { error: `A poll must be 1–${MAX_POLL_LENGTH} characters.` };
+  }
+  const added = await insertPolls(room.id, [question]);
+  if (!added) return { error: "That poll is already in the room, or the room is full." };
+  refresh(room.id);
+  return undefined;
+}
+
+/** Put a poll in front of everyone. Only one poll can be live at a time. */
+export async function askPoll(roomId: string, pollId: string) {
+  const { room } = await requireHost(roomId);
+  const { error } = await db()
+    .from("polls")
+    .update({ status: "live", asked_at: new Date().toISOString() })
+    .eq("id", pollId)
+    .eq("room_id", room.id)
+    .eq("status", "draft");
+  if (error?.code === UNIQUE_VIOLATION) throw new Error("Reveal the current poll before asking another.");
+  if (error) throw error;
+  refresh(room.id);
+}
+
+export async function revealPoll(roomId: string, pollId: string) {
+  const { room } = await requireHost(roomId);
+  const { error } = await db()
+    .from("polls")
+    .update({ status: "revealed", revealed_at: new Date().toISOString() })
+    .eq("id", pollId)
+    .eq("room_id", room.id)
+    .eq("status", "live");
+  if (error) throw error;
+  refresh(room.id);
+}
+
+export async function deletePoll(roomId: string, pollId: string) {
+  const { room } = await requireHost(roomId);
+  const { error } = await db().from("polls").delete().eq("id", pollId).eq("room_id", room.id);
+  if (error) throw error;
   refresh(room.id);
 }

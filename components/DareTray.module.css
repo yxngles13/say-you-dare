@@ -113,13 +113,6 @@
 
 .witness { margin: 2cqw auto 0; width: min(100%, 360px); text-align: center; }
 .witness h3 { margin: 0 0 12px; font: 400 26px var(--font-blackletter), serif; color: #ece4da; }
-.names { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
-.names button {
-  padding: 10px 16px; border-radius: 2px; letter-spacing: 0.08em;
-  font-family: var(--font-typewriter), monospace;
-  background: #ece4da; color: #1b1515; border: 1px solid #ece4da;
-}
-.names button:hover:not(:disabled) { background: #6e1515; border-color: #9b2a2a; color: #fff; }
 .message { text-align: center; margin-top: 12px; }
 
 .hint {
